@@ -29,15 +29,20 @@ def new_file():
 
 def open_file():
     global current_file
-    path = filedialog.askopenfilename(filetypes=[("C Files", "*.c"), ("All Files", "*.*")])
+    path = filedialog.askopenfilename(
+        filetypes=[("C Files", "*.c"), ("All Files", "*.*")]
+    )
+
     if path:
         current_file = path
+
         with open(path, "r", encoding="utf-8") as f:
             editor.delete("1.0", tk.END)
             editor.insert(tk.END, f.read())
 
 def save_file():
     global current_file
+
     if current_file is None:
         current_file = filedialog.asksaveasfilename(
             defaultextension=".c",
@@ -47,28 +52,29 @@ def save_file():
     if current_file:
         with open(current_file, "w", encoding="utf-8") as f:
             f.write(editor.get("1.0", tk.END))
+
     return current_file
 
 def compile_code():
     global current_file
+
     save_file()
 
     if not current_file:
         return
 
     if not os.path.exists(SDCC_EXE):
-        messagebox.showerror("Missing SDCC", "sdcc.exe not found inside the application.")
-        return
-
-    if not os.path.exists(PACKIHX_EXE):
-        messagebox.showerror("Missing PACKIHX", "packihx.exe not found inside the application.")
+        messagebox.showerror(
+            "Missing SDCC",
+            "sdcc.exe not found!"
+        )
         return
 
     project_folder = os.path.dirname(current_file)
     file_name = os.path.basename(current_file)
 
     output_box.delete("1.0", tk.END)
-    output_box.insert(tk.END, "Compiling 8051 code...\\n\\n")
+    output_box.insert(tk.END, "Compiling 8051 code...\n\n")
 
     result = subprocess.run(
         [SDCC_EXE, "-mmcs51", file_name],
@@ -80,11 +86,11 @@ def compile_code():
     output_box.insert(tk.END, result.stdout)
     output_box.insert(tk.END, result.stderr)
 
-    base_name = os.path.splitext(current_file)[0]
-    ihx_file = base_name + ".ihx"
-    hex_file = base_name + ".hex"
+    ihx_file = current_file.replace(".c", ".ihx")
+    hex_file = current_file.replace(".c", ".hex")
 
     if os.path.exists(ihx_file):
+
         with open(hex_file, "w", encoding="utf-8") as out:
             subprocess.run(
                 [PACKIHX_EXE, ihx_file],
@@ -93,18 +99,35 @@ def compile_code():
                 text=True
             )
 
-        output_box.insert(tk.END, f"\\nHEX Generated Successfully:\\n{hex_file}\\n")
-        messagebox.showinfo("Success", f"HEX Generated:\\n{hex_file}")
+        output_box.insert(
+            tk.END,
+            f"\nHEX Generated Successfully:\n{hex_file}\n"
+        )
+
+        messagebox.showinfo(
+            "Success",
+            f"HEX Generated:\n{hex_file}"
+        )
+
     else:
-        output_box.insert(tk.END, "\\nCompilation failed. HEX not generated.\\n")
-        messagebox.showerror("Failed", "Compilation failed. Check output.")
+        output_box.insert(
+            tk.END,
+            "\nCompilation failed.\n"
+        )
+
+        messagebox.showerror(
+            "Failed",
+            "HEX not generated."
+        )
 
 def load_led_blink():
-    sample = \"\"\"#include <8051.h>
+
+    sample = """#include <8051.h>
 
 void delay()
 {
     unsigned int i, j;
+
     for(i = 0; i < 1000; i++)
     {
         for(j = 0; j < 100; j++);
@@ -122,7 +145,8 @@ void main()
         delay();
     }
 }
-\"\"\"
+"""
+
     editor.delete("1.0", tk.END)
     editor.insert(tk.END, sample)
 
@@ -138,9 +162,26 @@ btn_style = {
     "pady": 5
 }
 
-tk.Button(toolbar, text="New", command=new_file, **btn_style).pack(side=tk.LEFT, padx=5, pady=5)
-tk.Button(toolbar, text="Open", command=open_file, **btn_style).pack(side=tk.LEFT, padx=5, pady=5)
-tk.Button(toolbar, text="Save", command=save_file, **btn_style).pack(side=tk.LEFT, padx=5, pady=5)
+tk.Button(
+    toolbar,
+    text="New",
+    command=new_file,
+    **btn_style
+).pack(side=tk.LEFT, padx=5, pady=5)
+
+tk.Button(
+    toolbar,
+    text="Open",
+    command=open_file,
+    **btn_style
+).pack(side=tk.LEFT, padx=5, pady=5)
+
+tk.Button(
+    toolbar,
+    text="Save",
+    command=save_file,
+    **btn_style
+).pack(side=tk.LEFT, padx=5, pady=5)
 
 tk.Button(
     toolbar,
@@ -154,7 +195,12 @@ tk.Button(
     pady=5
 ).pack(side=tk.LEFT, padx=10, pady=5)
 
-tk.Button(toolbar, text="Load LED Blink", command=load_led_blink, **btn_style).pack(side=tk.LEFT, padx=5, pady=5)
+tk.Button(
+    toolbar,
+    text="Load LED Blink",
+    command=load_led_blink,
+    **btn_style
+).pack(side=tk.LEFT, padx=5, pady=5)
 
 editor = tk.Text(
     root,
@@ -164,7 +210,13 @@ editor = tk.Text(
     font=("Consolas", 12),
     undo=True
 )
-editor.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+editor.pack(
+    fill=tk.BOTH,
+    expand=True,
+    padx=5,
+    pady=5
+)
 
 output_box = tk.Text(
     root,
@@ -174,10 +226,19 @@ output_box = tk.Text(
     insertbackground="white",
     font=("Consolas", 10)
 )
-output_box.pack(fill=tk.X, padx=5, pady=5)
 
-editor.insert(tk.END, \"\"\"// Robolark 8051 Studio
-// Click Load LED Blink or write your own 8051 C code.
-\"\"\")
+output_box.pack(
+    fill=tk.X,
+    padx=5,
+    pady=5
+)
+
+editor.insert(
+    tk.END,
+    """// Robolark 8051 Studio
+// Write your 8051 C code here.
+// Click 'Load LED Blink' for sample code.
+"""
+)
 
 root.mainloop()
