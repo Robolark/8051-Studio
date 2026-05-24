@@ -11,6 +11,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Extract SDCC ZIP
+        run: |
+          powershell -Command "Expand-Archive sdcc.zip -DestinationPath ."
+
+      - name: Verify SDCC Folder
+        run: |
+          dir
+          dir sdcc
+          dir sdcc\bin
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -20,7 +30,8 @@ jobs:
         run: pip install pyinstaller
 
       - name: Build Windows EXE
-        run: pyinstaller --onefile --windowed --name "Robolark_8051_Studio" --add-data "sdcc;sdcc" app.py
+        run: |
+          pyinstaller --onefile --windowed --name "Robolark_8051_Studio" --add-data "sdcc;sdcc" app.py
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4
