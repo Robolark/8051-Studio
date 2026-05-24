@@ -1,4 +1,4 @@
-# Robolark 8051 Studio
+# Robolark's 8051 Studio
 
 Simple Windows application for writing 8051 C code and generating HEX files using bundled SDCC.
 
