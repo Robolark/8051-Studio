@@ -1,0 +1,29 @@
+name: Build Robolark 8051 Studio EXE
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Build Windows EXE
+        run: pyinstaller --onefile --windowed --name "Robolark_8051_Studio" --add-data "sdcc;sdcc" app.py
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: Robolark_8051_Studio_EXE
+          path: dist/Robolark_8051_Studio.exe
