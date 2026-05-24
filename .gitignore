@@ -1,0 +1,13 @@
+__pycache__/
+build/
+dist/
+*.spec
+*.hex
+*.ihx
+*.asm
+*.lst
+*.map
+*.mem
+*.rel
+*.rst
+*.sym
