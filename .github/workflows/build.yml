@@ -1,4 +1,4 @@
-name: Build Robolark Embedded Studio V3 EXE
+name: Build Robolark Simple Upload IDE V4
 
 on:
   workflow_dispatch:
@@ -16,13 +16,12 @@ jobs:
           if (Test-Path "sdcc.zip") {
             powershell -Command "Expand-Archive sdcc.zip -DestinationPath . -Force"
           } else {
-            echo "sdcc.zip not found. Make sure sdcc.zip exists in repo root."
+            echo "sdcc.zip not found"
             exit 1
           }
 
-      - name: Verify SDCC Folder
+      - name: Verify SDCC
         run: |
-          dir
           dir sdcc
           dir sdcc\bin
 
@@ -35,12 +34,12 @@ jobs:
         run: |
           pip install pyinstaller pyserial
 
-      - name: Build Windows EXE
+      - name: Build EXE
         run: |
-          pyinstaller --onefile --windowed --name "Robolark_Embedded_Studio_V3" --add-data "sdcc;sdcc" app.py
+          pyinstaller --onefile --windowed --name "Robolark_Simple_Upload_IDE" --add-data "sdcc;sdcc" app.py
 
-      - name: Upload EXE
+      - name: Upload EXE Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Robolark_Embedded_Studio_V3_EXE
-          path: dist/Robolark_Embedded_Studio_V3.exe
+          name: Robolark_Simple_Upload_IDE_EXE
+          path: dist/Robolark_Simple_Upload_IDE.exe
