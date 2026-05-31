@@ -5,11 +5,9 @@ import subprocess
 import os
 import sys
 import json
-import threading
-import time
+import tempfile
 
-APP_NAME = "Robolark Embedded Studio V3"
-
+APP_NAME = "Robolark 8051 Simple IDE"
 
 def resource_path(relative_path):
     try:
@@ -18,70 +16,43 @@ def resource_path(relative_path):
         base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, relative_path)
 
-
-def app_folder():
+def app_dir():
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
 
-
 SDCC_EXE = resource_path(os.path.join("sdcc", "bin", "sdcc.exe"))
 PACKIHX_EXE = resource_path(os.path.join("sdcc", "bin", "packihx.exe"))
-CONFIG_FILE = os.path.join(app_folder(), "robolark_embedded_studio_config.json")
+CONFIG_FILE = os.path.join(app_dir(), "robolark_simple_ide_config.json")
 
 current_file = None
-last_hex_file = None
-serial_obj = None
-serial_thread_running = False
-
-BOARD_PROFILES = {
-    "AT89S52 - USBASP": {"chip": "m89s52", "method": "AVRDUDE USBASP", "notes": "Use USBASP programmer. Requires avrdude.exe path."},
-    "AT89S51 - USBASP": {"chip": "m89s51", "method": "AVRDUDE USBASP", "notes": "Use USBASP programmer. Requires avrdude.exe path."},
-    "AT89C51 - Manual HEX": {"chip": "AT89C51", "method": "Manual HEX Export Only", "notes": "AT89C51 usually needs external programmer. Generate HEX and upload manually."},
-    "STC89C52 - Serial ISP": {"chip": "STC89C52", "method": "STC ISP / Custom Tool", "notes": "Use STC-ISP software or stcgal through custom command."},
-    "STC8 Series - Serial ISP": {"chip": "STC8", "method": "STC ISP / Custom Tool", "notes": "Use STC-ISP software or stcgal through custom command."},
-    "Nuvoton W78E052DDG - Serial ISP": {"chip": "W78E052DDG", "method": "Nuvoton ISP / Custom Tool", "notes": "8052-compatible Nuvoton chip. Use Nuvoton ISP/ICP tool or custom serial ISP command."},
-    "Custom 8051": {"chip": "CUSTOM8051", "method": "Custom Command", "notes": "Use your own uploader command with placeholders."}
-}
+last_hex = None
 
 root = tk.Tk()
 root.title(APP_NAME)
-root.geometry("1280x780")
+root.geometry("1050x700")
 root.configure(bg="#1e1e1e")
 
-board_var = tk.StringVar(value="AT89S52 - USBASP")
-chip_var = tk.StringVar(value="m89s52")
-upload_method_var = tk.StringVar(value="AVRDUDE USBASP")
-com_var = tk.StringVar(value="")
+board_var = tk.StringVar(value="Nuvoton W78E052DDG")
+port_var = tk.StringVar(value="")
 baud_var = tk.StringVar(value="9600")
-uploader_path_var = tk.StringVar(value="")
-custom_command_var = tk.StringVar(value="")
-serial_send_var = tk.StringVar(value="")
+uploader_var = tk.StringVar(value="")
+command_var = tk.StringVar(value='"{uploader}" "{hex}"')
 
-
-def log(message):
-    output_box.insert(tk.END, str(message) + "\n")
-    output_box.see(tk.END)
-
+def log(msg):
+    console.insert(tk.END, str(msg) + "\n")
+    console.see(tk.END)
 
 def clear_log():
-    output_box.delete("1.0", tk.END)
-
-
-def serial_log(message):
-    serial_output.insert(tk.END, str(message))
-    serial_output.see(tk.END)
-
+    console.delete("1.0", tk.END)
 
 def save_config():
     data = {
         "board": board_var.get(),
-        "chip": chip_var.get(),
-        "upload_method": upload_method_var.get(),
-        "com_port": com_var.get(),
+        "port": port_var.get(),
         "baud": baud_var.get(),
-        "uploader_path": uploader_path_var.get(),
-        "custom_command": custom_command_var.get()
+        "uploader": uploader_var.get(),
+        "command": command_var.get()
     }
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -89,204 +60,18 @@ def save_config():
     except Exception:
         pass
 
-
 def load_config():
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            board_var.set(data.get("board", "AT89S52 - USBASP"))
-            chip_var.set(data.get("chip", "m89s52"))
-            upload_method_var.set(data.get("upload_method", "AVRDUDE USBASP"))
-            com_var.set(data.get("com_port", ""))
+            board_var.set(data.get("board", "Nuvoton W78E052DDG"))
+            port_var.set(data.get("port", ""))
             baud_var.set(data.get("baud", "9600"))
-            uploader_path_var.set(data.get("uploader_path", ""))
-            custom_command_var.set(data.get("custom_command", ""))
+            uploader_var.set(data.get("uploader", ""))
+            command_var.set(data.get("command", '"{uploader}" "{hex}"'))
         except Exception:
             pass
-
-
-def get_bare_template():
-    return """#include <8051.h>\n\nvoid main()\n{\n    while(1)\n    {\n        // Write your code here\n    }\n}\n"""
-
-
-def new_file():
-    global current_file, last_hex_file
-    current_file = None
-    last_hex_file = None
-    editor.delete("1.0", tk.END)
-    clear_log()
-    root.title(APP_NAME)
-    editor.insert(tk.END, get_bare_template())
-
-
-def open_file():
-    global current_file
-    path = filedialog.askopenfilename(filetypes=[("C Files", "*.c"), ("ASM Files", "*.asm"), ("All Files", "*.*")])
-    if path:
-        current_file = path
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
-            editor.delete("1.0", tk.END)
-            editor.insert(tk.END, f.read())
-        root.title(f"{APP_NAME} - {os.path.basename(path)}")
-
-
-def save_file():
-    global current_file
-    if current_file is None:
-        current_file = filedialog.asksaveasfilename(defaultextension=".c", filetypes=[("C Files", "*.c"), ("All Files", "*.*")])
-    if current_file:
-        with open(current_file, "w", encoding="utf-8") as f:
-            f.write(editor.get("1.0", tk.END))
-        root.title(f"{APP_NAME} - {os.path.basename(current_file)}")
-    return current_file
-
-
-def compile_code():
-    global current_file, last_hex_file
-    save_file()
-    if not current_file:
-        return None
-    clear_log()
-    if not os.path.exists(SDCC_EXE):
-        messagebox.showerror("Missing SDCC", "sdcc.exe not found inside this application.")
-        return None
-    if not os.path.exists(PACKIHX_EXE):
-        messagebox.showerror("Missing PACKIHX", "packihx.exe not found inside this application.")
-        return None
-    project_folder = os.path.dirname(current_file)
-    file_name = os.path.basename(current_file)
-    base_name = os.path.splitext(current_file)[0]
-    ihx_file = base_name + ".ihx"
-    hex_file = base_name + ".hex"
-    log("Robolark Embedded Studio V3")
-    log("Compiling using bundled SDCC...")
-    log(f"Board: {board_var.get()}")
-    log(f"Source: {current_file}\n")
-    result = subprocess.run([SDCC_EXE, "-mmcs51", file_name], cwd=project_folder, capture_output=True, text=True)
-    if result.stdout:
-        log(result.stdout)
-    if result.stderr:
-        log(result.stderr)
-    if os.path.exists(ihx_file):
-        with open(hex_file, "w", encoding="utf-8") as out:
-            pack_result = subprocess.run([PACKIHX_EXE, ihx_file], cwd=project_folder, stdout=out, stderr=subprocess.PIPE, text=True)
-        if pack_result.stderr:
-            log(pack_result.stderr)
-        last_hex_file = hex_file
-        log("\nHEX generated successfully.")
-        log(f"HEX Path: {hex_file}")
-        messagebox.showinfo("Success", f"HEX generated:\n{hex_file}")
-        return hex_file
-    log("\nCompilation failed. HEX not generated.")
-    messagebox.showerror("Compilation Failed", "HEX file was not generated. Check build output.")
-    return None
-
-
-def compile_and_upload():
-    hex_file = compile_code()
-    if hex_file:
-        upload_hex(hex_file)
-
-
-def select_hex_file():
-    global last_hex_file
-    path = filedialog.askopenfilename(filetypes=[("HEX Files", "*.hex"), ("All Files", "*.*")])
-    if path:
-        last_hex_file = path
-        log(f"Selected HEX: {path}")
-
-
-def open_hex_folder():
-    path = last_hex_file
-    if not path and current_file:
-        possible = os.path.splitext(current_file)[0] + ".hex"
-        if os.path.exists(possible):
-            path = possible
-    if not path or not os.path.exists(path):
-        messagebox.showwarning("No HEX", "No HEX file found. Compile first.")
-        return
-    try:
-        os.startfile(os.path.dirname(path))
-    except Exception as e:
-        messagebox.showerror("Error", str(e))
-
-
-def browse_uploader():
-    path = filedialog.askopenfilename(filetypes=[("Executable Files", "*.exe"), ("All Files", "*.*")])
-    if path:
-        uploader_path_var.set(path)
-        save_config()
-
-
-def build_upload_command(hex_file):
-    method = upload_method_var.get()
-    board = board_var.get()
-    chip = chip_var.get()
-    com = com_var.get()
-    baud = baud_var.get()
-    uploader = uploader_path_var.get()
-    custom = custom_command_var.get().strip()
-    if method == "Manual HEX Export Only":
-        return None
-    if method == "AVRDUDE USBASP":
-        if not uploader:
-            messagebox.showerror("Missing AVRDUDE", "Browse and select avrdude.exe.")
-            return None
-        return f'"{uploader}" -c usbasp -p {chip} -U flash:w:"{hex_file}":i'
-    if method in ["STC ISP / Custom Tool", "Nuvoton ISP / Custom Tool"]:
-        if custom:
-            return custom.replace("{hex}", hex_file).replace("{com}", com).replace("{baud}", baud).replace("{chip}", chip).replace("{board}", board)
-        if uploader:
-            return f'"{uploader}" "{hex_file}"'
-        messagebox.showerror("Missing Uploader", "Select uploader executable or enter custom command.")
-        return None
-    if method == "Custom Command":
-        if not custom:
-            messagebox.showerror("Missing Command", "Enter custom upload command.")
-            return None
-        return custom.replace("{hex}", hex_file).replace("{com}", com).replace("{baud}", baud).replace("{chip}", chip).replace("{board}", board)
-    return None
-
-
-def upload_hex(hex_file=None):
-    global last_hex_file
-    save_config()
-    if hex_file is None:
-        hex_file = last_hex_file
-    if not hex_file and current_file:
-        possible = os.path.splitext(current_file)[0] + ".hex"
-        if os.path.exists(possible):
-            hex_file = possible
-    if not hex_file or not os.path.exists(hex_file):
-        messagebox.showwarning("No HEX", "Compile first or select a HEX file.")
-        return
-    method = upload_method_var.get()
-    if method == "Manual HEX Export Only":
-        messagebox.showinfo("Manual Upload", f"HEX is ready:\n{hex_file}\n\nUse your external programmer software.")
-        return
-    command = build_upload_command(hex_file)
-    if not command:
-        return
-    log("\nUploading...")
-    log(f"Board: {board_var.get()}")
-    log(f"Method: {method}")
-    log(f"Command: {command}\n")
-    try:
-        result = subprocess.run(command, shell=True, capture_output=True, text=True)
-        if result.stdout:
-            log(result.stdout)
-        if result.stderr:
-            log(result.stderr)
-        if result.returncode == 0:
-            log("Upload command completed.")
-            messagebox.showinfo("Upload", "Upload command completed. Check console for status.")
-        else:
-            log(f"Upload command failed. Return code: {result.returncode}")
-            messagebox.showerror("Upload Failed", "Upload command failed. Check console output.")
-    except Exception as e:
-        messagebox.showerror("Upload Error", str(e))
-
 
 def refresh_ports():
     ports = []
@@ -295,172 +80,292 @@ def refresh_ports():
         ports = [p.device for p in serial.tools.list_ports.comports()]
     except Exception:
         ports = [f"COM{i}" for i in range(1, 31)]
-    com_dropdown["values"] = ports
-    if ports and not com_var.get():
-        com_var.set(ports[0])
+    port_box["values"] = ports
+    if ports and not port_var.get():
+        port_var.set(ports[0])
 
+def browse_uploader():
+    path = filedialog.askopenfilename(filetypes=[("EXE Files", "*.exe"), ("All Files", "*.*")])
+    if path:
+        uploader_var.set(path)
+        save_config()
 
-def serial_reader():
-    global serial_thread_running, serial_obj
-    while serial_thread_running and serial_obj:
-        try:
-            if serial_obj.in_waiting:
-                data = serial_obj.read(serial_obj.in_waiting).decode(errors="ignore")
-                serial_output.after(0, lambda d=data: serial_log(d))
-            time.sleep(0.05)
-        except Exception:
-            break
+def new_file():
+    global current_file
+    current_file = None
+    editor.delete("1.0", tk.END)
+    editor.insert(tk.END, sample_code())
+    root.title(APP_NAME)
 
+def open_file():
+    global current_file
+    path = filedialog.askopenfilename(filetypes=[("C Files", "*.c"), ("All Files", "*.*")])
+    if path:
+        current_file = path
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            editor.delete("1.0", tk.END)
+            editor.insert(tk.END, f.read())
+        root.title(f"{APP_NAME} - {os.path.basename(path)}")
 
-def connect_serial():
-    global serial_obj, serial_thread_running
-    try:
-        import serial
-    except Exception:
-        messagebox.showerror("Missing PySerial", "PySerial not available in this EXE.")
-        return
-    if serial_obj:
-        disconnect_serial()
-    try:
-        port = com_var.get()
-        baud = int(baud_var.get())
-        serial_obj = serial.Serial(port, baud, timeout=0.1)
-        serial_thread_running = True
-        threading.Thread(target=serial_reader, daemon=True).start()
-        serial_log(f"\nConnected to {port} @ {baud}\n")
-    except Exception as e:
-        messagebox.showerror("Serial Error", str(e))
+def save_file():
+    global current_file
+    if current_file is None:
+        current_file = filedialog.asksaveasfilename(
+            defaultextension=".c",
+            initialfile="main.c",
+            filetypes=[("C Files", "*.c")]
+        )
+    if current_file:
+        if not current_file.lower().endswith(".c"):
+            current_file += ".c"
+        with open(current_file, "w", encoding="utf-8") as f:
+            f.write(editor.get("1.0", tk.END))
+        root.title(f"{APP_NAME} - {os.path.basename(current_file)}")
+    return current_file
 
+def compile_to_hex(source_file):
+    global last_hex
 
-def disconnect_serial():
-    global serial_obj, serial_thread_running
-    serial_thread_running = False
-    try:
-        if serial_obj:
-            serial_obj.close()
-    except Exception:
-        pass
-    serial_obj = None
-    serial_log("\nSerial disconnected.\n")
+    if not os.path.exists(SDCC_EXE):
+        raise Exception("Bundled SDCC not found: sdcc/bin/sdcc.exe")
 
+    if not os.path.exists(PACKIHX_EXE):
+        raise Exception("Bundled packihx not found: sdcc/bin/packihx.exe")
 
-def send_serial():
-    if not serial_obj:
-        messagebox.showwarning("Not Connected", "Connect serial port first.")
-        return
-    text = serial_send_var.get()
-    if text:
-        try:
-            serial_obj.write((text + "\r\n").encode())
-            serial_send_var.set("")
-        except Exception as e:
-            messagebox.showerror("Serial Send Error", str(e))
+    if not source_file.lower().endswith(".c"):
+        raise Exception("Please save/open only .c source files.")
 
+    folder = os.path.dirname(source_file)
+    filename = os.path.basename(source_file)
+    base = os.path.splitext(source_file)[0]
+    ihx = base + ".ihx"
+    hexfile = base + ".hex"
 
-def apply_board_profile(event=None):
-    profile = BOARD_PROFILES.get(board_var.get(), BOARD_PROFILES["Custom 8051"])
-    chip_var.set(profile["chip"])
-    upload_method_var.set(profile["method"])
-    notes_label.config(text=profile["notes"])
+    log("Step 1: Compiling C code...")
+    result = subprocess.run(
+        [SDCC_EXE, "-mmcs51", "--out-fmt-ihx", filename],
+        cwd=folder,
+        capture_output=True,
+        text=True
+    )
+
+    if result.stdout:
+        log(result.stdout)
+    if result.stderr:
+        log(result.stderr)
+
+    if not os.path.exists(ihx):
+        raise Exception("Compilation failed. IHX file not created.")
+
+    log("Step 2: Creating HEX file...")
+    with open(hexfile, "w", encoding="utf-8") as out:
+        pack = subprocess.run(
+            [PACKIHX_EXE, ihx],
+            cwd=folder,
+            stdout=out,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+    if pack.stderr:
+        log(pack.stderr)
+
+    if not os.path.exists(hexfile):
+        raise Exception("HEX generation failed.")
+
+    last_hex = hexfile
+    log(f"HEX ready: {hexfile}")
+    return hexfile
+
+def upload_hex(hexfile):
     save_config()
 
+    uploader = uploader_var.get().strip()
+    command_template = command_var.get().strip()
 
-def load_template(code):
-    editor.delete("1.0", tk.END)
-    editor.insert(tk.END, code)
+    if not uploader and "{uploader}" in command_template:
+        log("Upload tool not selected.")
+        log("HEX generated successfully, but upload skipped.")
+        log("Select your programmer EXE once from settings.")
+        messagebox.showinfo("HEX Ready", f"HEX generated:\n{hexfile}\n\nSelect uploader tool to enable direct upload.")
+        try:
+            os.startfile(os.path.dirname(hexfile))
+        except Exception:
+            pass
+        return
 
+    command = command_template
+    command = command.replace("{uploader}", uploader)
+    command = command.replace("{hex}", hexfile)
+    command = command.replace("{port}", port_var.get())
+    command = command.replace("{baud}", baud_var.get())
+    command = command.replace("{board}", board_var.get())
 
-def load_led_p10():
-    load_template("""#include <8051.h>\n\nvoid delay()\n{\n    unsigned int i, j;\n    for(i = 0; i < 1000; i++)\n    {\n        for(j = 0; j < 100; j++);\n    }\n}\n\nvoid main()\n{\n    while(1)\n    {\n        P1_0 = 1;\n        delay();\n        P1_0 = 0;\n        delay();\n    }\n}\n""")
+    log("Step 3: Uploading to board...")
+    log(command)
 
+    result = subprocess.run(command, shell=True, capture_output=True, text=True)
 
-def load_led_p11():
-    load_template("""#include <8051.h>\n\nvoid delay()\n{\n    unsigned int i, j;\n    for(i = 0; i < 1000; i++)\n    {\n        for(j = 0; j < 100; j++);\n    }\n}\n\nvoid main()\n{\n    while(1)\n    {\n        P1_1 = 1;\n        delay();\n        P1_1 = 0;\n        delay();\n    }\n}\n""")
+    if result.stdout:
+        log(result.stdout)
+    if result.stderr:
+        log(result.stderr)
 
+    if result.returncode == 0:
+        messagebox.showinfo("Done", "Code compiled and upload command completed.")
+        log("Upload command completed.")
+    else:
+        messagebox.showerror("Upload Failed", "Upload command failed. Check console.")
+        log(f"Upload failed with return code: {result.returncode}")
 
-def load_uart_echo():
-    load_template("""#include <8051.h>\n\nvoid uart_init()\n{\n    TMOD = 0x20;\n    TH1 = 0xFD;     // 9600 baud for 11.0592 MHz\n    SCON = 0x50;\n    TR1 = 1;\n}\n\nvoid uart_tx(char c)\n{\n    SBUF = c;\n    while(TI == 0);\n    TI = 0;\n}\n\nchar uart_rx()\n{\n    while(RI == 0);\n    RI = 0;\n    return SBUF;\n}\n\nvoid main()\n{\n    char c;\n    uart_init();\n    while(1)\n    {\n        c = uart_rx();\n        uart_tx(c);\n    }\n}\n""")
+def upload_to_board():
+    clear_log()
+    try:
+        source = save_file()
+        if not source:
+            return
+        hexfile = compile_to_hex(source)
+        upload_hex(hexfile)
+    except Exception as e:
+        log("ERROR:")
+        log(str(e))
+        messagebox.showerror("Failed", str(e))
 
+def open_output_folder():
+    if last_hex and os.path.exists(last_hex):
+        os.startfile(os.path.dirname(last_hex))
+    elif current_file:
+        os.startfile(os.path.dirname(current_file))
+    else:
+        messagebox.showinfo("No output", "Upload/compile first.")
 
-def load_button_led():
-    load_template("""#include <8051.h>\n\nvoid main()\n{\n    while(1)\n    {\n        if(P3_2 == 0)\n        {\n            P1_0 = 1;\n        }\n        else\n        {\n            P1_0 = 0;\n        }\n    }\n}\n""")
+def sample_code():
+    return """#include <8051.h>
+
+void delay()
+{
+    unsigned int i;
+    unsigned int j;
+
+    for(i = 0; i < 1000; i++)
+    {
+        for(j = 0; j < 100; j++)
+        {
+        }
+    }
+}
+
+void main()
+{
+    while(1)
+    {
+        P1_0 = 1;
+        delay();
+
+        P1_0 = 0;
+        delay();
+    }
+}
+"""
 
 # UI
-topbar = tk.Frame(root, bg="#2b2b2b")
-topbar.pack(fill=tk.X)
-btn_style = {"bg": "#3c3f41", "fg": "white", "font": ("Segoe UI", 10, "bold"), "bd": 0, "padx": 10, "pady": 5}
-tk.Button(topbar, text="New", command=new_file, **btn_style).pack(side=tk.LEFT, padx=4, pady=5)
-tk.Button(topbar, text="Open", command=open_file, **btn_style).pack(side=tk.LEFT, padx=4, pady=5)
-tk.Button(topbar, text="Save", command=save_file, **btn_style).pack(side=tk.LEFT, padx=4, pady=5)
-tk.Button(topbar, text="Compile HEX", command=compile_code, bg="#007acc", fg="white", font=("Segoe UI", 10, "bold"), bd=0, padx=10, pady=5).pack(side=tk.LEFT, padx=8, pady=5)
-tk.Button(topbar, text="Upload", command=lambda: upload_hex(), bg="#188038", fg="white", font=("Segoe UI", 10, "bold"), bd=0, padx=10, pady=5).pack(side=tk.LEFT, padx=4, pady=5)
-tk.Button(topbar, text="Compile + Upload", command=compile_and_upload, bg="#0f9d58", fg="white", font=("Segoe UI", 10, "bold"), bd=0, padx=10, pady=5).pack(side=tk.LEFT, padx=4, pady=5)
-tk.Button(topbar, text="Open HEX Folder", command=open_hex_folder, **btn_style).pack(side=tk.LEFT, padx=4, pady=5)
+top = tk.Frame(root, bg="#2b2b2b")
+top.pack(fill=tk.X)
+
+btn = {
+    "bg": "#3c3f41",
+    "fg": "white",
+    "font": ("Segoe UI", 10, "bold"),
+    "bd": 0,
+    "padx": 10,
+    "pady": 6
+}
+
+tk.Button(top, text="New", command=new_file, **btn).pack(side=tk.LEFT, padx=5, pady=6)
+tk.Button(top, text="Open", command=open_file, **btn).pack(side=tk.LEFT, padx=5, pady=6)
+tk.Button(top, text="Save", command=save_file, **btn).pack(side=tk.LEFT, padx=5, pady=6)
+
+tk.Button(
+    top,
+    text="UPLOAD TO BOARD",
+    command=upload_to_board,
+    bg="#0f9d58",
+    fg="white",
+    font=("Segoe UI", 12, "bold"),
+    bd=0,
+    padx=18,
+    pady=7
+).pack(side=tk.LEFT, padx=12, pady=6)
+
+tk.Button(top, text="Open Output Folder", command=open_output_folder, **btn).pack(side=tk.LEFT, padx=5, pady=6)
 
 main = tk.Frame(root, bg="#1e1e1e")
 main.pack(fill=tk.BOTH, expand=True)
-left = tk.Frame(main, bg="#252526", width=300)
+
+left = tk.Frame(main, bg="#252526", width=310)
 left.pack(side=tk.LEFT, fill=tk.Y)
 left.pack_propagate(False)
+
 right = tk.Frame(main, bg="#1e1e1e")
 right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
-tk.Label(left, text="Board Manager", bg="#252526", fg="white", font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=10, pady=(12, 6))
+tk.Label(left, text="Simple Upload Settings", bg="#252526", fg="white", font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=10, pady=(15,8))
+
 tk.Label(left, text="Board", bg="#252526", fg="#dcdcdc").pack(anchor="w", padx=10)
-board_dropdown = ttk.Combobox(left, textvariable=board_var, values=list(BOARD_PROFILES.keys()), state="readonly")
-board_dropdown.pack(fill=tk.X, padx=10, pady=3)
-board_dropdown.bind("<<ComboboxSelected>>", apply_board_profile)
-tk.Label(left, text="Chip / Programmer ID", bg="#252526", fg="#dcdcdc").pack(anchor="w", padx=10)
-tk.Entry(left, textvariable=chip_var).pack(fill=tk.X, padx=10, pady=3)
-tk.Label(left, text="Upload Method", bg="#252526", fg="#dcdcdc").pack(anchor="w", padx=10)
-upload_method_dropdown = ttk.Combobox(left, textvariable=upload_method_var, values=["Manual HEX Export Only", "AVRDUDE USBASP", "STC ISP / Custom Tool", "Nuvoton ISP / Custom Tool", "Custom Command"], state="readonly")
-upload_method_dropdown.pack(fill=tk.X, padx=10, pady=3)
-notes_label = tk.Label(left, text="", bg="#252526", fg="#9cdcfe", wraplength=275, justify="left")
-notes_label.pack(anchor="w", padx=10, pady=(4, 10))
+ttk.Combobox(
+    left,
+    textvariable=board_var,
+    values=["Nuvoton W78E052DDG", "AT89S52", "AT89S51", "STC89C52", "Custom 8051"],
+    state="readonly"
+).pack(fill=tk.X, padx=10, pady=4)
 
-tk.Label(left, text="Examples", bg="#252526", fg="white", font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=10, pady=(8, 6))
-tk.Button(left, text="Blink LED P1.0", command=load_led_p10, **btn_style).pack(fill=tk.X, padx=10, pady=3)
-tk.Button(left, text="Blink LED P1.1", command=load_led_p11, **btn_style).pack(fill=tk.X, padx=10, pady=3)
-tk.Button(left, text="Button P3.2 → LED P1.0", command=load_button_led, **btn_style).pack(fill=tk.X, padx=10, pady=3)
-tk.Button(left, text="UART Echo 9600", command=load_uart_echo, **btn_style).pack(fill=tk.X, padx=10, pady=3)
-tk.Button(left, text="Bare Template", command=lambda: load_template(get_bare_template()), **btn_style).pack(fill=tk.X, padx=10, pady=3)
-
-tk.Label(left, text="Programmer Settings", bg="#252526", fg="white", font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=10, pady=(18, 6))
 tk.Label(left, text="COM Port", bg="#252526", fg="#dcdcdc").pack(anchor="w", padx=10)
-com_dropdown = ttk.Combobox(left, textvariable=com_var)
-com_dropdown.pack(fill=tk.X, padx=10, pady=3)
-tk.Button(left, text="Refresh COM Ports", command=refresh_ports, **btn_style).pack(fill=tk.X, padx=10, pady=3)
+port_box = ttk.Combobox(left, textvariable=port_var)
+port_box.pack(fill=tk.X, padx=10, pady=4)
+
+tk.Button(left, text="Refresh COM Ports", command=refresh_ports, **btn).pack(fill=tk.X, padx=10, pady=4)
+
 tk.Label(left, text="Baud", bg="#252526", fg="#dcdcdc").pack(anchor="w", padx=10)
-tk.Entry(left, textvariable=baud_var).pack(fill=tk.X, padx=10, pady=3)
-tk.Label(left, text="Uploader EXE Path", bg="#252526", fg="#dcdcdc").pack(anchor="w", padx=10)
-tk.Entry(left, textvariable=uploader_path_var).pack(fill=tk.X, padx=10, pady=3)
-tk.Button(left, text="Browse Uploader", command=browse_uploader, **btn_style).pack(fill=tk.X, padx=10, pady=3)
-tk.Label(left, text="Custom Command", bg="#252526", fg="#dcdcdc").pack(anchor="w", padx=10, pady=(10, 0))
-tk.Entry(left, textvariable=custom_command_var).pack(fill=tk.X, padx=10, pady=3)
-tk.Label(left, text="Placeholders: {hex}, {com}, {baud}, {chip}, {board}", bg="#252526", fg="#cccccc", wraplength=275, justify="left").pack(anchor="w", padx=10, pady=3)
-tk.Button(left, text="Select HEX", command=select_hex_file, **btn_style).pack(fill=tk.X, padx=10, pady=(12, 3))
+tk.Entry(left, textvariable=baud_var).pack(fill=tk.X, padx=10, pady=4)
 
-notebook = ttk.Notebook(right)
-notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-editor_frame = tk.Frame(notebook, bg="#1e1e1e")
-serial_frame = tk.Frame(notebook, bg="#1e1e1e")
-notebook.add(editor_frame, text="Code Editor")
-notebook.add(serial_frame, text="Serial Monitor")
-editor = tk.Text(editor_frame, bg="#1e1e1e", fg="#dcdcdc", insertbackground="white", font=("Consolas", 12), undo=True)
+tk.Label(left, text="Uploader Tool EXE", bg="#252526", fg="#dcdcdc").pack(anchor="w", padx=10, pady=(12,0))
+tk.Entry(left, textvariable=uploader_var).pack(fill=tk.X, padx=10, pady=4)
+tk.Button(left, text="Select Uploader Tool", command=browse_uploader, **btn).pack(fill=tk.X, padx=10, pady=4)
+
+tk.Label(left, text="Upload Command", bg="#252526", fg="#dcdcdc").pack(anchor="w", padx=10, pady=(12,0))
+tk.Entry(left, textvariable=command_var).pack(fill=tk.X, padx=10, pady=4)
+
+tk.Label(
+    left,
+    text="One button flow:\nSave C → Compile HEX → Upload\n\nPlaceholders:\n{uploader}\n{hex}\n{port}\n{baud}\n{board}",
+    bg="#252526",
+    fg="#9cdcfe",
+    justify="left",
+    wraplength=285
+).pack(anchor="w", padx=10, pady=12)
+
+editor = tk.Text(
+    right,
+    bg="#1e1e1e",
+    fg="#dcdcdc",
+    insertbackground="white",
+    font=("Consolas", 12),
+    undo=True
+)
 editor.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-output_box = tk.Text(editor_frame, height=11, bg="#111111", fg="#00ff00", insertbackground="white", font=("Consolas", 10))
-output_box.pack(fill=tk.X, padx=5, pady=5)
-serial_toolbar = tk.Frame(serial_frame, bg="#2b2b2b")
-serial_toolbar.pack(fill=tk.X, padx=5, pady=5)
-tk.Button(serial_toolbar, text="Connect", command=connect_serial, bg="#188038", fg="white", font=("Segoe UI", 10, "bold"), bd=0, padx=10, pady=5).pack(side=tk.LEFT, padx=4)
-tk.Button(serial_toolbar, text="Disconnect", command=disconnect_serial, bg="#b3261e", fg="white", font=("Segoe UI", 10, "bold"), bd=0, padx=10, pady=5).pack(side=tk.LEFT, padx=4)
-tk.Entry(serial_toolbar, textvariable=serial_send_var, width=50).pack(side=tk.LEFT, padx=8)
-tk.Button(serial_toolbar, text="Send", command=send_serial, **btn_style).pack(side=tk.LEFT, padx=4)
-serial_output = tk.Text(serial_frame, bg="#111111", fg="#00ff00", insertbackground="white", font=("Consolas", 10))
-serial_output.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-editor.insert(tk.END, """// Robolark Embedded Studio V3\n// Supports regular 8051 boards + Nuvoton W78E052DDG profile.\n// Select board from left side, write code, compile HEX, then upload.\n""")
+console = tk.Text(
+    right,
+    height=12,
+    bg="#111111",
+    fg="#00ff00",
+    insertbackground="white",
+    font=("Consolas", 10)
+)
+console.pack(fill=tk.X, padx=5, pady=5)
+
 load_config()
-apply_board_profile()
 refresh_ports()
+editor.insert(tk.END, sample_code())
+
 root.mainloop()
