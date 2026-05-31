@@ -1,4 +1,4 @@
-name: Build Robolark 8051 Studio V2 EXE
+name: Build Robolark Embedded Studio V3 EXE
 
 on:
   workflow_dispatch:
@@ -37,10 +37,10 @@ jobs:
 
       - name: Build Windows EXE
         run: |
-          pyinstaller --onefile --windowed --name "Robolark_8051_Studio_V2" --add-data "sdcc;sdcc" app.py
+          pyinstaller --onefile --windowed --name "Robolark_Embedded_Studio_V3" --add-data "sdcc;sdcc" app.py
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
-          name: Robolark_8051_Studio_V2_EXE
-          path: dist/Robolark_8051_Studio_V2.exe
+          name: Robolark_Embedded_Studio_V3_EXE
+          path: dist/Robolark_Embedded_Studio_V3.exe
