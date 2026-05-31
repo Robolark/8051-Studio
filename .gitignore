@@ -11,3 +11,4 @@ dist/
 *.rel
 *.rst
 *.sym
+robolark_embedded_studio_config.json
