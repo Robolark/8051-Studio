@@ -1,4 +1,4 @@
-# Robolark Embedded Studio V3
+# Robolark Embedded Studio
 
 Supports:
 - AT89S52 USBASP profile
@@ -11,28 +11,19 @@ Supports:
 - SDCC compile and HEX generation
 - Serial monitor
 - Upload command manager
+  
+One-button flow:
 
-Keep `sdcc.zip` in the repository root.
+Write C code -> Upload To Board
 
-Build from GitHub Actions:
+Internally:
+1. Saves .c file
+2. Compiles using bundled SDCC
+3. Generates HEX using packihx
+4. Runs the configured uploader command
 
-```text
-Actions → Build Robolark Embedded Studio V3 EXE → Run workflow
-```
+Keep existing sdcc.zip in repo root.
 
-Download artifact:
-
-```text
-Robolark_Embedded_Studio_V3_EXE
-```
-
-Inside:
-
-```text
-Robolark_Embedded_Studio_V3.exe
-```
-
-Upload command placeholders:
 
 ```text
 {hex}
