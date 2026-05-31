@@ -1,4 +1,4 @@
-name: Build Robolark 8051 Studio EXE
+name: Build Robolark 8051 Studio V2 EXE
 
 on:
   workflow_dispatch:
@@ -13,7 +13,12 @@ jobs:
 
       - name: Extract SDCC ZIP
         run: |
-          powershell -Command "Expand-Archive sdcc.zip -DestinationPath ."
+          if (Test-Path "sdcc.zip") {
+            powershell -Command "Expand-Archive sdcc.zip -DestinationPath . -Force"
+          } else {
+            echo "sdcc.zip not found. Make sure sdcc.zip exists in repo root."
+            exit 1
+          }
 
       - name: Verify SDCC Folder
         run: |
@@ -26,15 +31,16 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install PyInstaller
-        run: pip install pyinstaller
+      - name: Install Dependencies
+        run: |
+          pip install pyinstaller pyserial
 
       - name: Build Windows EXE
         run: |
-          pyinstaller --onefile --windowed --name "Robolark_8051_Studio" --add-data "sdcc;sdcc" app.py
+          pyinstaller --onefile --windowed --name "Robolark_8051_Studio_V2" --add-data "sdcc;sdcc" app.py
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
-          name: Robolark_8051_Studio_EXE
-          path: dist/Robolark_8051_Studio.exe
+          name: Robolark_8051_Studio_V2_EXE
+          path: dist/Robolark_8051_Studio_V2.exe
