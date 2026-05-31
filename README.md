@@ -1,39 +1,43 @@
-# Robolark's 8051 Studio
+# Robolark Embedded Studio V3
 
-Simple Windows application for writing 8051 C code and generating HEX files using bundled SDCC.
+Supports:
+- AT89S52 USBASP profile
+- AT89S51 USBASP profile
+- AT89C51 manual HEX profile
+- STC89C52 serial ISP profile
+- STC8 serial ISP profile
+- Nuvoton W78E052DDG serial ISP/custom upload profile
+- Custom 8051 profile
+- SDCC compile and HEX generation
+- Serial monitor
+- Upload command manager
 
-## GitHub Build Steps
+Keep `sdcc.zip` in the repository root.
 
-1. Create a new GitHub repository.
-2. Upload all files from this ZIP.
-3. Download SDCC Windows version.
-4. Copy SDCC files into:
+Build from GitHub Actions:
 
 ```text
-sdcc/
+Actions → Build Robolark Embedded Studio V3 EXE → Run workflow
 ```
 
-Recommended: upload the full SDCC folder contents, because SDCC may need include/lib files also.
-
-Minimum required:
+Download artifact:
 
 ```text
-sdcc/bin/sdcc.exe
-sdcc/bin/packihx.exe
+Robolark_Embedded_Studio_V3_EXE
 ```
 
-5. Go to GitHub repository.
-6. Open **Actions**.
-7. Select **Build Robolark 8051 Studio EXE**.
-8. Click **Run workflow**.
-9. After build completes, download artifact:
+Inside:
 
 ```text
-Robolark_8051_Studio_EXE
+Robolark_Embedded_Studio_V3.exe
 ```
 
-Inside it you will get:
+Upload command placeholders:
 
 ```text
-Robolark_8051_Studio.exe
+{hex}
+{com}
+{baud}
+{chip}
+{board}
 ```
